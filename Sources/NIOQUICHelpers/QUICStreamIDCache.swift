@@ -96,7 +96,7 @@ struct QUICStreamIDCache<Value> {
     @inlinable
     var isEmpty: Bool { self._count == 0 }
 
-    @usableFromInline
+    @inlinable
     init(capacity: Int, threshold: Double) {
         precondition((0.0...1.0).contains(threshold))
         let capacity = capacity.nextPowerOfTwo
@@ -163,7 +163,9 @@ struct QUICStreamIDCache<Value> {
         } else {
             assert(slot.isEmpty)
             self._count &+= 1
-            self.doubleCapacityIfNeeded()
+            if self._count >= self._nextGrowthCount {
+                self._doubleCapacity()
+            }
             return .inserted
         }
     }
@@ -183,7 +185,7 @@ struct QUICStreamIDCache<Value> {
     }
 
     /// Remove all values in the cache.
-    @usableFromInline
+    @inlinable
     mutating func removeAll() {
         if self.isEmpty { return }
 
@@ -193,10 +195,9 @@ struct QUICStreamIDCache<Value> {
         }
     }
 
-    @usableFromInline
-    mutating func doubleCapacityIfNeeded() {
-        if self._count < self._nextGrowthCount { return }
-
+    @inlinable
+    @inline(never)
+    mutating func _doubleCapacity() {
         // Compute the new capacity, mask and growth count.
         let oldCapacity = self.capacity
         let capacity = oldCapacity * 2
@@ -251,7 +252,8 @@ extension QUICStreamIDCache: Sequence {
 }
 
 extension Int {
-    fileprivate var nextPowerOfTwo: Int {
+    @inlinable
+    var nextPowerOfTwo: Int {
         precondition(self > 0)
         if self.nonzeroBitCount == 1 {
             return self
@@ -260,7 +262,8 @@ extension Int {
         }
     }
 
-    fileprivate func scaled(by factor: Double) -> Int {
+    @inlinable
+    func scaled(by factor: Double) -> Int {
         let scaled = (Double(self) * factor).rounded(.up)
         return Swift.max(1, Int(scaled))
     }

@@ -65,7 +65,8 @@ public struct QUICStreamIDDictionary<Value> {
     @usableFromInline var _overflowCount: Int
 
     /// The number of values held in `_overflowArray` before switching to `_overflowDictionary`.
-    private static var overflowArrayCapacity: Int { 32 }
+    @inlinable
+    static var overflowArrayCapacity: Int { 32 }
 
     /// Returns the cache index to use for a given stream ID.
     @inlinable
@@ -231,7 +232,6 @@ extension QUICStreamIDDictionary {
     }
 
     @inlinable
-    @inline(__always)
     func _overflowIndex(of id: QUICStreamID) -> OverflowIndex? {
         if self._overflowDictionary.isEmpty {
             for index in self._overflowArray.indices {
@@ -248,7 +248,6 @@ extension QUICStreamIDDictionary {
     }
 
     @inlinable
-    @inline(__always)
     func _overflowValue(at position: OverflowIndex) -> Value {
         switch position {
         case .array(let index):
@@ -258,7 +257,7 @@ extension QUICStreamIDDictionary {
         }
     }
 
-    @usableFromInline
+    @inlinable
     @inline(never)
     mutating func _setOverflowValue(_ value: Value, at position: OverflowIndex) {
         switch position {
@@ -269,7 +268,7 @@ extension QUICStreamIDDictionary {
         }
     }
 
-    @usableFromInline
+    @inlinable
     @inline(never)
     mutating func _insertOverflow(_ value: Value, forID id: QUICStreamID) {
         if self._overflowDictionary.isEmpty {
@@ -279,7 +278,7 @@ extension QUICStreamIDDictionary {
                 }
                 self._overflowArray.append(OverflowEntry(id: id, value: value))
             } else {
-                self.switchOverflowToDictionary(inserting: value, forID: id)
+                self._switchOverflowToDictionary(inserting: value, forID: id)
             }
         } else {
             self._overflowDictionary[id] = value
@@ -287,8 +286,9 @@ extension QUICStreamIDDictionary {
         self._overflowCount &+= 1
     }
 
+    @inlinable
     @inline(never)
-    private mutating func switchOverflowToDictionary(
+    mutating func _switchOverflowToDictionary(
         inserting value: Value,
         forID id: QUICStreamID
     ) {
@@ -300,7 +300,7 @@ extension QUICStreamIDDictionary {
         self._overflowArray.removeAll(keepingCapacity: true)
     }
 
-    @usableFromInline
+    @inlinable
     @inline(never)
     mutating func _removeOverflowValue(forID id: QUICStreamID) -> Value? {
         switch self._overflowIndex(of: id) {
