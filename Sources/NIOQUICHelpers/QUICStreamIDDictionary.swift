@@ -32,11 +32,18 @@
 @available(anyAppleOS 26, *)
 public struct QUICStreamIDDictionary<Value> {
     /// Caches keyed by the "type bits" of a QUIC stream ID (i.e. `rawValue & 0b11`).
-    private var caches: InlineArray<4, QUICStreamIDCache<Value>>
+    @usableFromInline var _caches: InlineArray<4, QUICStreamIDCache<Value>>
 
-    private struct OverflowEntry {
-        var id: QUICStreamID
-        var value: Value
+    @usableFromInline
+    struct OverflowEntry {
+        @usableFromInline var id: QUICStreamID
+        @usableFromInline var value: Value
+
+        @inlinable
+        init(id: QUICStreamID, value: Value) {
+            self.id = id
+            self.value = value
+        }
     }
 
     /// Array of overflow values. Used when the number of overflow values is low.
@@ -44,39 +51,43 @@ public struct QUICStreamIDDictionary<Value> {
     /// Values are moved to the overflow dictionary when `overflowArrayCapacity` are stored. The
     /// order of elements has no semantic meaning.
     ///
-    /// Note: Empty when `overflowDictionary` is non-empty.
-    private var overflowArray: [OverflowEntry]
+    /// Note: Empty when `_overflowDictionary` is non-empty.
+    @usableFromInline var _overflowArray: [OverflowEntry]
 
     /// Dictionary of overflow values.
     ///
-    /// Note: Empty when `overflowArray` is non-empty.
-    private var overflowDictionary: [QUICStreamID: Value]
+    /// Note: Empty when `_overflowArray` is non-empty.
+    @usableFromInline var _overflowDictionary: [QUICStreamID: Value]
 
     /// Number of items in overflow storage.
     ///
     /// Avoids loading a value from the array/dictionary's heap storage on the hot-path.
-    private var overflowCount: Int
+    @usableFromInline var _overflowCount: Int
 
-    /// The number of values held in `overflowArray` before switching to `overflowDictionary`.
-    private static var overflowArrayCapacity: Int { 32 }
+    /// The number of values held in `_overflowArray` before switching to `_overflowDictionary`.
+    @inlinable
+    static var overflowArrayCapacity: Int { 32 }
 
     /// Returns the cache index to use for a given stream ID.
-    private func cacheIndex(of id: QUICStreamID) -> Int {
+    @inlinable
+    func _cacheIndex(of id: QUICStreamID) -> Int {
         // Bottom two bits are the type bits.
         Int(id.rawValue & 0b11)
     }
 
     /// Returns the number of elements in the dictionary.
+    @inlinable
     public var count: Int {
-        var total = self.overflowCount
-        total += self.caches[0].count
-        total += self.caches[1].count
-        total += self.caches[2].count
-        total += self.caches[3].count
+        var total = self._overflowCount
+        total += self._caches[0].count
+        total += self._caches[1].count
+        total += self._caches[2].count
+        total += self._caches[3].count
         return total
     }
 
     /// Returns whether the dictionary is empty.
+    @inlinable
     public var isEmpty: Bool {
         self.count == 0
     }
@@ -88,34 +99,37 @@ public struct QUICStreamIDDictionary<Value> {
     ///     of two. Defaults to 16.
     ///   - cacheGrowthThreshold: The utilisation threshold above which a cache will grow, defaults
     ///     to 0.6.
+    @inlinable
     public init(initialCacheCapacity: Int = 16, cacheGrowthThreshold: Double = 0.6) {
-        self.caches = [
+        self._caches = [
             QUICStreamIDCache(capacity: initialCacheCapacity, threshold: cacheGrowthThreshold),
             QUICStreamIDCache(capacity: initialCacheCapacity, threshold: cacheGrowthThreshold),
             QUICStreamIDCache(capacity: initialCacheCapacity, threshold: cacheGrowthThreshold),
             QUICStreamIDCache(capacity: initialCacheCapacity, threshold: cacheGrowthThreshold),
         ]
-        self.overflowArray = []
-        self.overflowDictionary = [:]
-        self.overflowCount = 0
+        self._overflowArray = []
+        self._overflowDictionary = [:]
+        self._overflowCount = 0
     }
 
     /// Returns whether the dictionary contains a value for the given stream ID.
+    @inlinable
     public func contains(_ id: QUICStreamID) -> Bool {
-        if self.caches[self.cacheIndex(of: id)].contains(id) {
+        if self._caches[self._cacheIndex(of: id)].contains(id) {
             return true
         } else {
-            return self.overflowIndex(of: id) != nil
+            return self._overflowIndex(of: id) != nil
         }
     }
 
     /// Returns or updates the value associated with a given ID.
+    @inlinable
     public subscript(id: QUICStreamID) -> Value? {
         get {
-            if let value = self.caches[self.cacheIndex(of: id)][id] {
+            if let value = self._caches[self._cacheIndex(of: id)][id] {
                 return value
-            } else if let position = self.overflowIndex(of: id) {
-                return self.overflowValue(at: position)
+            } else if let position = self._overflowIndex(of: id) {
+                return self._overflowValue(at: position)
             } else {
                 return nil
             }
@@ -136,19 +150,20 @@ public struct QUICStreamIDDictionary<Value> {
     ///   - id: The stream ID to update.
     /// - Returns: The value previously set for the given ID.
     @discardableResult
+    @inlinable
     public mutating func updateValue(_ value: Value, forID id: QUICStreamID) -> Value? {
         let previous: Value?
 
-        if self.overflowCount == 0 || self.caches[self.cacheIndex(of: id)].contains(id) {
+        if self._overflowCount == 0 || self._caches[self._cacheIndex(of: id)].contains(id) {
             // Fast-path: no-overflow values.
-            previous = self.insert(value, forID: id)
-        } else if let position = self.overflowIndex(of: id) {
+            previous = self._insert(value, forID: id)
+        } else if let position = self._overflowIndex(of: id) {
             // Value was in the overflow storage.
-            previous = self.overflowValue(at: position)
-            self.setOverflowValue(value, at: position)
+            previous = self._overflowValue(at: position)
+            self._setOverflowValue(value, at: position)
         } else {
             // Value wasn't in overflow.
-            previous = self.insert(value, forID: id)
+            previous = self._insert(value, forID: id)
         }
 
         return previous
@@ -156,37 +171,39 @@ public struct QUICStreamIDDictionary<Value> {
 
     /// Removes the value associated with the given ID.
     @discardableResult
+    @inlinable
     public mutating func removeValue(forID id: QUICStreamID) -> Value? {
-        if let removed = self.caches[self.cacheIndex(of: id)].removeValue(forID: id) {
+        if let removed = self._caches[self._cacheIndex(of: id)].removeValue(forID: id) {
             return removed
-        } else if self.overflowCount == 0 {
+        } else if self._overflowCount == 0 {
             return nil
         } else {
-            return self.removeOverflowValue(forID: id)
+            return self._removeOverflowValue(forID: id)
         }
     }
 
     /// Insert a value to the cache, moving evicted values into the overflow storage.
-    private mutating func insert(_ value: Value, forID id: QUICStreamID) -> Value? {
-        switch self.caches[self.cacheIndex(of: id)].updateValue(value, forID: id) {
+    @inlinable
+    mutating func _insert(_ value: Value, forID id: QUICStreamID) -> Value? {
+        switch self._caches[self._cacheIndex(of: id)].updateValue(value, forID: id) {
         case .replaced(let previous):
             return previous
         case .inserted:
             return nil
         case .evicted(let evictedID, let evictedValue):
-            self.insertOverflow(evictedValue, forID: evictedID)
+            self._insertOverflow(evictedValue, forID: evictedID)
             return nil
         }
     }
 
     /// Returns whether the given ID is held in a cache rather than the overflow storage.
     func _testOnly_isCached(_ id: QUICStreamID) -> Bool {
-        self.caches[self.cacheIndex(of: id)].contains(id)
+        self._caches[self._cacheIndex(of: id)].contains(id)
     }
 
     /// Returns whether the given ID is held in the linearly scanned part of the overflow storage.
     func _testOnly_isInOverflowArray(_ id: QUICStreamID) -> Bool {
-        switch self.overflowIndex(of: id) {
+        switch self._overflowIndex(of: id) {
         case .array:
             return true
         case .dictionary, .none:
@@ -195,102 +212,108 @@ public struct QUICStreamIDDictionary<Value> {
     }
 
     /// Removes all values.
+    @inlinable
     public mutating func removeAll() {
-        for index in self.caches.indices {
-            self.caches[index].removeAll()
+        for index in self._caches.indices {
+            self._caches[index].removeAll()
         }
-        self.overflowArray.removeAll(keepingCapacity: true)
-        self.overflowDictionary.removeAll()
-        self.overflowCount = 0
+        self._overflowArray.removeAll(keepingCapacity: true)
+        self._overflowDictionary.removeAll()
+        self._overflowCount = 0
     }
 }
 
 @available(anyAppleOS 26, *)
 extension QUICStreamIDDictionary {
-    fileprivate enum OverflowIndex {
+    @usableFromInline
+    enum OverflowIndex {
         case array(Int)
         case dictionary(Dictionary<QUICStreamID, Value>.Index)
     }
 
-    @inline(__always)
-    private func overflowIndex(of id: QUICStreamID) -> OverflowIndex? {
-        if self.overflowDictionary.isEmpty {
-            for index in self.overflowArray.indices {
-                if self.overflowArray[index].id == id {
+    @inlinable
+    func _overflowIndex(of id: QUICStreamID) -> OverflowIndex? {
+        if self._overflowDictionary.isEmpty {
+            for index in self._overflowArray.indices {
+                if self._overflowArray[index].id == id {
                     return .array(index)
                 }
             }
             return nil
-        } else if let index = self.overflowDictionary.index(forKey: id) {
+        } else if let index = self._overflowDictionary.index(forKey: id) {
             return .dictionary(index)
         } else {
             return nil
         }
     }
 
-    @inline(__always)
-    private func overflowValue(at position: OverflowIndex) -> Value {
+    @inlinable
+    func _overflowValue(at position: OverflowIndex) -> Value {
         switch position {
         case .array(let index):
-            return self.overflowArray[index].value
+            return self._overflowArray[index].value
         case .dictionary(let index):
-            return self.overflowDictionary.values[index]
+            return self._overflowDictionary.values[index]
         }
     }
 
+    @inlinable
     @inline(never)
-    private mutating func setOverflowValue(_ value: Value, at position: OverflowIndex) {
+    mutating func _setOverflowValue(_ value: Value, at position: OverflowIndex) {
         switch position {
         case .array(let index):
-            self.overflowArray[index].value = value
+            self._overflowArray[index].value = value
         case .dictionary(let index):
-            self.overflowDictionary.values[index] = value
+            self._overflowDictionary.values[index] = value
         }
     }
 
+    @inlinable
     @inline(never)
-    private mutating func insertOverflow(_ value: Value, forID id: QUICStreamID) {
-        if self.overflowDictionary.isEmpty {
-            if self.overflowArray.count < Self.overflowArrayCapacity {
-                if self.overflowArray.isEmpty {
-                    self.overflowArray.reserveCapacity(Self.overflowArrayCapacity)
+    mutating func _insertOverflow(_ value: Value, forID id: QUICStreamID) {
+        if self._overflowDictionary.isEmpty {
+            if self._overflowArray.count < Self.overflowArrayCapacity {
+                if self._overflowArray.isEmpty {
+                    self._overflowArray.reserveCapacity(Self.overflowArrayCapacity)
                 }
-                self.overflowArray.append(OverflowEntry(id: id, value: value))
+                self._overflowArray.append(OverflowEntry(id: id, value: value))
             } else {
-                self.switchOverflowToDictionary(inserting: value, forID: id)
+                self._switchOverflowToDictionary(inserting: value, forID: id)
             }
         } else {
-            self.overflowDictionary[id] = value
+            self._overflowDictionary[id] = value
         }
-        self.overflowCount &+= 1
+        self._overflowCount &+= 1
     }
 
+    @inlinable
     @inline(never)
-    private mutating func switchOverflowToDictionary(
+    mutating func _switchOverflowToDictionary(
         inserting value: Value,
         forID id: QUICStreamID
     ) {
-        self.overflowDictionary.reserveCapacity(self.overflowArray.count + 1)
-        for entry in self.overflowArray {
-            self.overflowDictionary[entry.id] = entry.value
+        self._overflowDictionary.reserveCapacity(self._overflowArray.count + 1)
+        for entry in self._overflowArray {
+            self._overflowDictionary[entry.id] = entry.value
         }
-        self.overflowDictionary[id] = value
-        self.overflowArray.removeAll(keepingCapacity: true)
+        self._overflowDictionary[id] = value
+        self._overflowArray.removeAll(keepingCapacity: true)
     }
 
+    @inlinable
     @inline(never)
-    private mutating func removeOverflowValue(forID id: QUICStreamID) -> Value? {
-        switch self.overflowIndex(of: id) {
+    mutating func _removeOverflowValue(forID id: QUICStreamID) -> Value? {
+        switch self._overflowIndex(of: id) {
         case .array(let index):
-            self.overflowCount &-= 1
+            self._overflowCount &-= 1
             // Order has no meaning: swap with the final element to make removal O(1).
-            let lastIndex = self.overflowArray.index(before: self.overflowArray.endIndex)
-            self.overflowArray.swapAt(index, lastIndex)
-            return self.overflowArray.removeLast().value
+            let lastIndex = self._overflowArray.index(before: self._overflowArray.endIndex)
+            self._overflowArray.swapAt(index, lastIndex)
+            return self._overflowArray.removeLast().value
 
         case .dictionary(let index):
-            self.overflowCount &-= 1
-            return self.overflowDictionary.remove(at: index).value
+            self._overflowCount &-= 1
+            return self._overflowDictionary.remove(at: index).value
 
         case .none:
             return nil
@@ -302,68 +325,72 @@ extension QUICStreamIDDictionary {
 extension QUICStreamIDDictionary: Sequence {
     public typealias Element = (QUICStreamID, Value)
 
+    @inlinable
     public func makeIterator() -> Iterator {
         Iterator(storage: self)
     }
 
     public struct Iterator: IteratorProtocol {
-        private let storage: QUICStreamIDDictionary<Value>
-        private var state: State
+        @usableFromInline let _storage: QUICStreamIDDictionary<Value>
+        @usableFromInline var _state: State
 
-        private enum State {
+        @usableFromInline
+        enum State {
             case iteratingCache(Int, QUICStreamIDCache<Value>.Iterator)
             case iteratingOverflowArray([OverflowEntry].Iterator)
             case iteratingOverflowDictionary([QUICStreamID: Value].Iterator)
             case finished
         }
 
-        fileprivate init(storage: QUICStreamIDDictionary<Value>) {
-            let index = storage.caches.startIndex
-            self.state = .iteratingCache(index, storage.caches[index].makeIterator())
-            self.storage = storage
+        @inlinable
+        init(storage: QUICStreamIDDictionary<Value>) {
+            let index = storage._caches.startIndex
+            self._state = .iteratingCache(index, storage._caches[index].makeIterator())
+            self._storage = storage
         }
 
+        @inlinable
         public mutating func next() -> (QUICStreamID, Value)? {
             while true {
-                switch self.state {
+                switch self._state {
                 case .iteratingCache(let index, var iterator):
-                    self.state = .finished
+                    self._state = .finished
 
                     if let value = iterator.next() {
-                        self.state = .iteratingCache(index, iterator)
+                        self._state = .iteratingCache(index, iterator)
                         return value
                     } else {
-                        let nextIndex = self.storage.caches.index(after: index)
+                        let nextIndex = self._storage._caches.index(after: index)
 
-                        if nextIndex == self.storage.caches.endIndex {
-                            let iterator = self.storage.overflowArray.makeIterator()
-                            self.state = .iteratingOverflowArray(iterator)
+                        if nextIndex == self._storage._caches.endIndex {
+                            let iterator = self._storage._overflowArray.makeIterator()
+                            self._state = .iteratingOverflowArray(iterator)
                         } else {
                             // Next cache.
-                            let nextIterator = self.storage.caches[nextIndex].makeIterator()
-                            self.state = .iteratingCache(nextIndex, nextIterator)
+                            let nextIterator = self._storage._caches[nextIndex].makeIterator()
+                            self._state = .iteratingCache(nextIndex, nextIterator)
                         }
                     }
 
                 case .iteratingOverflowArray(var iterator):
-                    self.state = .finished
+                    self._state = .finished
 
                     if let entry = iterator.next() {
-                        self.state = .iteratingOverflowArray(iterator)
+                        self._state = .iteratingOverflowArray(iterator)
                         return (entry.id, entry.value)
                     } else {
-                        let iterator = self.storage.overflowDictionary.makeIterator()
-                        self.state = .iteratingOverflowDictionary(iterator)
+                        let iterator = self._storage._overflowDictionary.makeIterator()
+                        self._state = .iteratingOverflowDictionary(iterator)
                     }
 
                 case .iteratingOverflowDictionary(var iterator):
-                    self.state = .finished
+                    self._state = .finished
 
                     if let value = iterator.next() {
-                        self.state = .iteratingOverflowDictionary(iterator)
+                        self._state = .iteratingOverflowDictionary(iterator)
                         return value
                     } else {
-                        self.state = .finished
+                        self._state = .finished
                     }
 
                 case .finished:
